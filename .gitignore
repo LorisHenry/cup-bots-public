@@ -23,3 +23,6 @@ pids
 Thumbs.db
 .idea/
 .vscode/
+
+# Debug
+.debug
