@@ -5,6 +5,7 @@ yarn-debug.log*
 yarn-error.log*
 
 # Env files
+.session-cookies.txt
 .env
 .env.local
 .env.*.local

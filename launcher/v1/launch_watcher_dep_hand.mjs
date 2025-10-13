@@ -1,7 +1,7 @@
 // launch_watcher_dep_foot_feminines.mjs
-import { launchScraper } from './processor.mjs';
-import { startSafetyLogs } from './safety_heartbeat.mjs';
-import {launchTopicWatcher} from "./topic_watcher.mjs";
+import { launchScraper } from '../../main/v1/processor.mjs';
+import { startSafetyLogs } from '../../main/v1/safety_heartbeat.mjs';
+import {launchTopicWatcher} from "../../main/v1/topic_watcher.mjs";
 
 const BOT_NAME = 'Watcher Hand';
 const TARGET_URL = process.env.FORUM_URL_DEP_HAND

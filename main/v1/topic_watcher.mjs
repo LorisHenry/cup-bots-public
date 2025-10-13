@@ -1,4 +1,14 @@
 // topicWatcher.mjs
+/**
+ * v1 Topic Watcher
+ * - Periodically scrapes a forum section page and tracks discovered topics by link.
+ * - On the first successful load, it initializes the seen set without notifying.
+ * - On subsequent loads, if a new topic link appears, it sends notifications.
+ * - Performs a simple sanity check to ensure the scraped HTML is indeed a forum page (not an error/login).
+ *
+ * Env
+ * - BASE_FORUM_URL: Used to normalize relative links and strip transient "sid" params.
+ */
 import { scrapePage } from './scraper.mjs';
 import { sendNotification } from './notification_sender.mjs';
 import fetch from 'node-fetch';
@@ -11,6 +21,10 @@ let initialLoadDone = false; // 👈 flag to ignore the first scrape
 
 const seenTopics = new Set();
 
+/**
+ * Normalize a topic href against BASE_FORUM_URL and drop volatile query params.
+ * This helps deduplicate the same topic link across refreshes.
+ */
 function normalizeHref(href) {
   try {
     const url = new URL(href, BASE_FORUM_URL);
@@ -21,6 +35,11 @@ function normalizeHref(href) {
   }
 }
 
+/**
+ * Scrape the target forum section, update the seen set, and notify on new topics.
+ * - Detects "General Error" pages and sends a dedicated alert without processing topics.
+ * - Ensures we are on a valid forum page by checking the forum title.
+ */
 async function checkTopics(TARGET_URL, DISCORD_WEBHOOK_URL, NTFY_URL) {
   try {
     const html = await scrapePage(TARGET_URL);
@@ -74,6 +93,13 @@ async function checkTopics(TARGET_URL, DISCORD_WEBHOOK_URL, NTFY_URL) {
   console.log(seenTopics)
 }
 
+/**
+ * Start the topic watcher loop for a given forum section.
+ * @param {string} TARGET_URL - Forum section URL to poll.
+ * @param {string} DISCORD_WEBHOOK_URL - Optional Discord webhook to notify.
+ * @param {string} NTFY_URL - Optional ntfy topic URL to notify.
+ * @param {number} SCRAPE_INTERVAL_MS - Polling interval in ms.
+ */
 export async function launchTopicWatcher(TARGET_URL, DISCORD_WEBHOOK_URL, NTFY_URL, SCRAPE_INTERVAL_MS) {
   console.log('🚀 Topic watcher démarré sur:', TARGET_URL);
   await checkTopics(TARGET_URL, DISCORD_WEBHOOK_URL, NTFY_URL); // initial fetch

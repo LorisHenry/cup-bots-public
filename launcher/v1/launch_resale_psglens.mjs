@@ -1,6 +1,6 @@
 // launch_resale_psglens.mjs
-import { launchScraper } from './processor.mjs';
-import { startSafetyLogs } from './safety_heartbeat.mjs';
+import { launchScraper } from '../../main/v1/processor.mjs';
+import { startSafetyLogs } from '../../main/v1/safety_heartbeat.mjs';
 
 const BOT_NAME = 'Revente PSG - Lens';
 const TARGET_URL = process.env.RESALE_PSGLENS_BASE_FORUM_URL

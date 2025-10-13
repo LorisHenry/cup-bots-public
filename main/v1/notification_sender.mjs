@@ -1,3 +1,9 @@
+/**
+ * Notification sender (v1)
+ * - Sends messages to two optional channels: Discord (webhook) and ntfy.
+ * - If a channel URL is not provided, it is skipped silently.
+ * - Minimal formatting: Discord @everyone prefix + raw message; ntfy supports Title/Priority headers.
+ */
 import fetch from "node-fetch";
 
 export async function sendNotification(message, DISCORD_WEBHOOK_URL, NFTY_URL) {

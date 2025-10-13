@@ -1,4 +1,18 @@
 // scraper.mjs
+/**
+ * v1 scraper
+ * - Legacy/simple cookie-based scraper used by v1 watchers.
+ * - Retrieves session cookies using getCookies() on every attempt and fetches the target URL.
+ * - Retries on failure up to maxRetries, then throws to let the caller decide next steps.
+ *
+ * Params
+ * - url: Target page URL to fetch.
+ * - maxRetries: Number of attempts before failing (default 5).
+ * - delayMs: Delay between attempts in milliseconds (default 5000).
+ *
+ * Returns
+ * - Resolves with the HTML string when successful; rejects on final failure.
+ */
 import fs from 'fs';
 import fetch from 'node-fetch';
 import { getCookies } from './cookies.mjs';  // make sure cookies.mjs exports getCookies()
