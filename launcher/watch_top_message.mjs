@@ -127,8 +127,13 @@ function norm(s) {
  */
 function loadWhitelist() {
   try {
-    const raw = process.env.WHITEWORDS;
+    let raw = process.env.WHITEWORDS;
     if (!raw) return {};
+    raw = String(raw).trim();
+    // If the whole value is wrapped in matching quotes (common in .env), strip them
+    if ((raw.startsWith("'") && raw.endsWith("'")) || (raw.startsWith('"') && raw.endsWith('"'))) {
+      raw = raw.slice(1, -1);
+    }
     return JSON.parse(raw);
   } catch (e) {
     console.warn('⚠️ Could not parse WHITEWORDS env JSON. Using empty whitelist.', e.message);
@@ -245,7 +250,12 @@ async function tick() {
 }
 
 // initial run + interval
-(async () => {
-  await tick();
-  setInterval(tick, SCRAPE_INTERVAL_MS);
-})();
+if (process.env.NODE_ENV !== 'test') {
+  (async () => {
+    await tick();
+    setInterval(tick, SCRAPE_INTERVAL_MS);
+  })();
+}
+
+// Export small pure helpers for testing (non-v1 code)
+export { hashString, parseForumTimestampToMs, titleMatchesWhitelist, norm, loadWhitelist };

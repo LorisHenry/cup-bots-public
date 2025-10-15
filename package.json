@@ -1,10 +1,10 @@
 {
   "name": "cup-bots",
   "version": "1.0.0",
-  "description": "",
+  "description": "cup-bots is a JavaScript package that aims at deploying scraping bots on the CUP forum",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "NODE_OPTIONS=--experimental-vm-modules jest",
     "watch-top": "node launcher/watch_top_message.mjs"
   },
   "keywords": [],
@@ -14,5 +14,16 @@
     "cheerio": "^1.1.2",
     "dotenv": "^17.2.2",
     "node-fetch": "^2.7.0"
+  },
+  "directories": {
+    "test": "tests"
+  },
+  "devDependencies": {
+    "jest": "^30.2.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@github.com-personal:LorisHenry/cup-bots.git"
   }
 }
+

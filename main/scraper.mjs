@@ -373,3 +373,6 @@ export async function autoSubmitGoogleForm(formUrl) {
     return { ok: false, submitted: false, message: `Error: ${e.message}` };
   }
 }
+
+// Export selected internal helpers for testing
+export { buildCookieHeaderFromSetCookie, looksLikeLoginPage };
