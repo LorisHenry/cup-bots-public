@@ -4,9 +4,10 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+coverage/
+
 # Env files
-.session-cookies.txt
-launcher/.session-cookies.txt
+**/.session_cookies.txt
 .env
 .env.local
 .env.*.local

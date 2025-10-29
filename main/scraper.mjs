@@ -323,36 +323,121 @@ export function detectTicketSale(htmlOrText) {
  * @returns {Promise<{ok:boolean, submitted:boolean, status?:number, message:string}>}
  */
 export async function autoSubmitGoogleForm(formUrl) {
+  // Submit a Google Form (forms.gle or docs.google.com/forms) filling 4 specific text fields:
+  // "Nom", "Prénom", "Mail (identique à billeterie PSG)", "Numéro" from .env values.
+  // Env fallbacks supported: FORM_NOM|NOM, FORM_PRENOM|PRENOM, FORM_MAIL|MAIL|EMAIL, FORM_NUMERO|NUMERO|TEL|TELEPHONE.
+  // Also merges FORM_PAYLOAD_JSON when provided.
   try {
-    const url = new URL(formUrl);
-    // Normalize to formResponse endpoint
-    // Example: https://docs.google.com/forms/d/e/<id>/viewform -> .../formResponse
-    const parts = url.pathname.split('/');
-    const ix = parts.findIndex(p => p === 'viewform');
-    if (ix !== -1) parts[ix] = 'formResponse';
-    const submitUrl = new URL(url.origin + parts.join('/') + (url.search || ''));
+    if (!formUrl) throw new Error('formUrl is required');
 
-    // Load form to attempt to extract entry names (best effort)
-    const html = await (await fetch(formUrl, { headers: { 'User-Agent': 'cup-bots/1.0' } })).text();
+    // 1) Fetch the form HTML (node-fetch follows forms.gle redirects by default)
+    const viewRes = await fetch(formUrl, { headers: { 'User-Agent': DEFAULT_HEADERS['User-Agent'] } });
+    const html = await viewRes.text();
     const $ = load(html);
-    const inputs = new Set();
+
+    // 2) Determine the submit URL: convert .../viewform to .../formResponse
+    // Prefer the real <form> action if present in the HTML
+    let effectiveUrl = viewRes.url || formUrl;
+    const u = new URL(effectiveUrl);
+    let submitUrl;
+    const actionAttr = $('form#mG61Hd').attr('action') || $('form[action*="formResponse"]').attr('action');
+    if (actionAttr) {
+      submitUrl = new URL(actionAttr, u.origin);
+    } else {
+      // Derive from effective URL
+      let path = u.pathname.replace(/\/?viewform\b/, '/formResponse');
+      if (!path.startsWith('/')) path = '/' + path;
+      submitUrl = new URL(path + (u.search || ''), u.origin);
+    }
+
+    // 3) Find all entry.* inputs and try to infer their question labels
+    // Heuristic: for each input/textarea/select, climb to a question container and read its text
+    const fields = [];
     $('input[name^="entry."], textarea[name^="entry."], select[name^="entry."]').each((_, el) => {
       const name = $(el).attr('name');
-      if (name) inputs.add(name);
+      if (!name) return;
+      let q = $(el).closest('div[role="listitem"]');
+      if (!q.length) q = $(el).parents().slice(0, 5).last(); // fallback few levels up
+      // Try to read the question text specifically
+      let labelText = (q.find('div.HoXoMd .M7eMe').first().text() || '').trim();
+      if (!labelText) labelText = (q.find('[role="heading"]').first().text() || '').trim();
+      if (!labelText) {
+        // Try aria-labelledby on the input
+        const labelledBy = ($(el).attr('aria-labelledby') || '').split(/\s+/).filter(Boolean);
+        for (const id of labelledBy) {
+          const t = $(`#${id}`).text().trim();
+          if (t) { labelText = t; break; }
+        }
+      }
+      if (!labelText) labelText = (q.text() || '').trim();
+      fields.push({ name, labelText });
     });
 
-    // Build payload from env JSON when provided
+    // Helper: normalize french text (remove accents, lowercase)
+    const norm = (s) => (s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
+
+    // 4) Map labels to target roles
+    const roleMap = { nom: null, prenom: null, mail: null, numero: null };
+    for (const f of fields) {
+      const t = norm(f.labelText);
+      if (!t) continue;
+      const has = (w) => t.includes(w);
+      // Identify mail/email
+      if (!roleMap.mail && (has('mail') || has('e-mail') || has('email'))) {
+        roleMap.mail = f.name; continue;
+      }
+      // Identify numero / telephone
+      if (!roleMap.numero && (has('numero') || has('numéro') || has('telephone') || has('téléphone') || has('tel') || has('portable'))) {
+        roleMap.numero = f.name; continue;
+      }
+      // Identify prenom
+      if (!roleMap.prenom && (has('prenom') || has('prénom'))) {
+        roleMap.prenom = f.name; continue;
+      }
+      // Identify nom (ensure not prenom)
+      if (!roleMap.nom && has('nom') && !has('prenom') && !has('prénom')) {
+        roleMap.nom = f.name; continue;
+      }
+    }
+
+    // 5) Read env values with fallbacks
+    const envVal = (keys) => keys.map(k => process.env[k]).find(v => v != null && String(v).trim() !== '');
+    const values = {
+      nom: envVal(['FORM_NOM', 'NOM']),
+      prenom: envVal(['FORM_PRENOM', 'PRENOM']),
+      mail: envVal(['FORM_MAIL', 'MAIL', 'EMAIL']),
+      numero: envVal(['FORM_NUMERO', 'NUMERO', 'TEL', 'TELEPHONE']),
+    };
+
+    // 6) Merge with FORM_PAYLOAD_JSON if provided
     let payload = {};
     const envJson = process.env.FORM_PAYLOAD_JSON;
     if (envJson) {
       try { payload = JSON.parse(envJson); } catch {}
     }
 
-    // Fill any missing entry fields with a generic placeholder to attempt submit
-    for (const name of inputs) {
-      if (!(name in payload)) payload[name] = 'N/A';
+    // Add our four fields when both mapping and value exist
+    const missing = [];
+    for (const key of ['nom','prenom','mail','numero']) {
+      const entryName = roleMap[key];
+      const val = values[key];
+      if (entryName && val != null) {
+        payload[entryName] = String(val);
+      } else {
+        missing.push(key);
+      }
     }
 
+    // 7) If we have no payload at all, fallback: fill detected entry fields with 'N/A' to attempt submission
+    if (Object.keys(payload).length === 0) {
+      if (fields.length > 0) {
+        for (const f of fields) payload[f.name] = 'N/A';
+      } else {
+        return { ok: false, submitted: false, message: `Could not build payload: unmatched fields ${missing.join(', ') || 'all'}` };
+      }
+    }
+
+    // 8) Submit
     const formData = new URLSearchParams();
     Object.entries(payload).forEach(([k, v]) => formData.append(k, String(v)));
 
@@ -360,15 +445,23 @@ export async function autoSubmitGoogleForm(formUrl) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-        'User-Agent': 'cup-bots/1.0',
-        'Referer': formUrl,
+        'User-Agent': DEFAULT_HEADERS['User-Agent'],
+        'Referer': viewRes.url || formUrl,
       },
       body: formData.toString(),
       redirect: 'manual',
     });
 
     const ok = res.status >= 200 && res.status < 400;
-    return { ok, submitted: ok, status: res.status, message: ok ? 'Submitted (best effort)' : `Submit failed: ${res.status}` };
+    const info = {
+      ok,
+      submitted: ok,
+      status: res.status,
+      message: ok ? 'Submitted' : `Submit failed: ${res.status}`,
+      unmatched: missing,
+      mapped: roleMap,
+    };
+    return info;
   } catch (e) {
     return { ok: false, submitted: false, message: `Error: ${e.message}` };
   }

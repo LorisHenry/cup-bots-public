@@ -20,11 +20,11 @@ import '../utils/load_env.mjs';
 import fs from 'fs';
 import { scrapePage, analyzeHtml, detectTicketSale, autoSubmitGoogleForm } from '../main/scraper.mjs';
 import { sendNotification } from '../main/v1/notification_sender.mjs';
+import { startSafetyLogs } from '../main/v1/safety_heartbeat.mjs';
 
 const TARGET_URL = process.env.TARGET_URL;
 const SCRAPE_INTERVAL_MS = Number(process.env.SCRAPE_INTERVAL_MS || 150000);
-const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL || '';
-const NTFY_URL = process.env.NTFY_URL || process.env.NFTY_URL || '';
+const BOT_NAME = process.env.BOT_NAME || 'watch_top_message';
 
 if (!TARGET_URL) {
   console.error('Missing TARGET_URL env. Exiting.');
@@ -171,30 +171,50 @@ async function handleNewTopMessage(top, textHash, ts, tsMs) {
   lastTop = { textHash, timestamp: ts, timestampMs: tsMs };
 
   const formsUrl = detectTicketSale(top.messageHtml) || detectTicketSale(top.messageText);
+
+  let forumName = top.forumName || '';
   if (!formsUrl) {
-    console.log('🚫 No Google Forms link found → skipping.');
-    return; // Category 1: pass
+    console.log('🚫 No Google Forms link found → skipping. Logging to debug');
+    forumName = forumName + '_debug';
   }
 
-  const whitelist = loadWhitelist();
-  const forumName = top.forumName || '';
   const title = top.title || '';
 
   const header = `🎟️ Google Form found\n• Subforum: ${forumName || 'N/A'}\n• Title: ${title || 'N/A'}\n• URL: ${formsUrl}`;
   const bodySnippet = (top.messageText || '').slice(0, 500);
   const fullMessage = `${header}\n\nMessage:\n${bodySnippet}`;
 
-  const isWhitelisted = titleMatchesWhitelist(forumName, title, whitelist);
-
   // Always log and notify when a Google Form is present
   console.log(fullMessage);
+  let DISCORD_WEBHOOK_URL;
+  let NTFY_URL;
+  switch (forumName) {
+      case "Matchs / Déplacements - Équipe première":
+        DISCORD_WEBHOOK_URL = process.env.PSG_A_DISCORD_WEBHOOK_URL || '';
+        NTFY_URL = process.env.PSG_A_NTFY_URL || '';
+        break;
+      case "Matchs / Déplacements - Féminine":
+        DISCORD_WEBHOOK_URL = process.env.PSG_F_DISCORD_WEBHOOK_URL || '';
+        NTFY_URL = process.env.PSG_F_NTFY_URL || '';
+        break;
+      case "Matchs / Déplacements - Handball":
+        DISCORD_WEBHOOK_URL = process.env.PSG_H_DISCORD_WEBHOOK_URL || '';
+        NTFY_URL = process.env.PSG_H_NTFY_URL || '';
+        break;
+      default:
+        DISCORD_WEBHOOK_URL = process.env.DEBUG_DISCORD_WEBHOOK_URL || '';
+        NTFY_URL = process.env.DEBUG_NTFY_URL || '';
+  }
   try {
     await sendNotification(fullMessage, DISCORD_WEBHOOK_URL, NTFY_URL);
   } catch (e) {
     console.warn('⚠️ Notification send failed:', e.message);
   }
 
-  if (isWhitelisted) {
+  const whitelist = loadWhitelist();
+  const isWhitelisted = titleMatchesWhitelist(forumName, title, whitelist);
+  const use_auto_submission = process.env.USE_AUTO_SUBMISSION === 'true'
+  if (isWhitelisted && use_auto_submission) {
     console.log('✅ Title matches whitelist for this subforum → attempting auto form submission.');
     const res = await autoSubmitGoogleForm(formsUrl);
     console.log(`📤 Auto-submission result: ${res.submitted ? 'OK' : 'FAILED'} (${res.message}${res.status ? `, status ${res.status}` : ''})`);
@@ -252,6 +272,9 @@ async function tick() {
 // initial run + interval
 if (process.env.NODE_ENV !== 'test') {
   (async () => {
+    // Start safety heartbeat logs (sends one immediately, then on interval)
+    startSafetyLogs(BOT_NAME, 60_000);
+
     await tick();
     setInterval(tick, SCRAPE_INTERVAL_MS);
   })();
