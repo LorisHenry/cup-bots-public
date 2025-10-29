@@ -1,4 +1,11 @@
+## 2.0.1
+authors: lorishenry95800@gmail.com
+
+### Fixes
+- Fix absolute URL bug for ntfy 
+
 ## 2.0.0
+
 authors: lorishenry95800@gmail.com
 
 ### Features

@@ -6,12 +6,22 @@
  */
 import fetch from "node-fetch";
 
+function ensureAbsoluteUrl(url) {
+  if (!url) return url;
+  // If it already starts with http:// or https://, keep as-is
+  if (/^https?:\/\//i.test(url)) return url;
+  // Otherwise, default to https://
+  return `https://${url}`;
+}
+
 export async function sendNotification(message, DISCORD_WEBHOOK_URL, NFTY_URL) {
+  const discordUrl = ensureAbsoluteUrl(DISCORD_WEBHOOK_URL);
+  const ntfyUrl = ensureAbsoluteUrl(NFTY_URL);
 
   // --- Discord notification ---
-  if (DISCORD_WEBHOOK_URL) {
+  if (discordUrl) {
     try {
-      await fetch(DISCORD_WEBHOOK_URL, {
+      await fetch(discordUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -25,9 +35,9 @@ export async function sendNotification(message, DISCORD_WEBHOOK_URL, NFTY_URL) {
   }
 
   // --- ntfy notification ---
-  if (NFTY_URL) {
+  if (ntfyUrl) {
     try {
-      await fetch(NFTY_URL, {
+      await fetch(ntfyUrl, {
         method: 'POST',
         body: message,
         headers: {
