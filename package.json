@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test": "NODE_OPTIONS=--experimental-vm-modules jest",
-    "watch-top": "node launcher/watch_top_message.mjs"
+    "watch-top": "node launcher/watch_top_message.mjs",
+    "test:auto-submit": "node scripts/test_auto_submit.mjs"
   },
   "keywords": [],
   "author": "",

@@ -31,6 +31,7 @@
 import fetch from 'node-fetch';
 import { load } from 'cheerio';
 import fs from 'fs';
+import { sendNotification } from './v1/notification_sender.mjs';
 
 /**
  * Fetch page HTML for a given URL with cookie handling and login fallback.
@@ -330,6 +331,15 @@ export async function autoSubmitGoogleForm(formUrl) {
   try {
     if (!formUrl) throw new Error('formUrl is required');
 
+    const discordUrl = process.env.DISCORD_WEBHOOK_URL || process.env.DEBUG_DISCORD_WEBHOOK_URL;
+    const ntfyUrl = process.env.NTFY_URL || process.env.DEBUG_NTFY_URL;
+    const notify = async (msg) => {
+      console.log(msg);
+      try { await sendNotification(msg, discordUrl, ntfyUrl); } catch {}
+    };
+
+    await notify(`🚀 Début auto-submit Google Form: ${formUrl}`);
+
     // 1) Fetch the form HTML (node-fetch follows forms.gle redirects by default)
     const viewRes = await fetch(formUrl, { headers: { 'User-Agent': DEFAULT_HEADERS['User-Agent'] } });
     const html = await viewRes.text();
@@ -373,6 +383,35 @@ export async function autoSubmitGoogleForm(formUrl) {
       fields.push({ name, labelText });
     });
 
+    // Fallback: some Google Forms render visible inputs without name, but provide entry IDs and labels in FB_PUBLIC_LOAD_DATA_
+    if (fields.length === 0) {
+      try {
+        const scriptText = $('script').map((_, s) => $(s).html() || '').get().join('\n');
+        const m = scriptText.match(/FB_PUBLIC_LOAD_DATA_\s*=\s*(\[.*?\]);/s);
+        if (m) {
+          // Parse the array structure and extract entries: [id, label, ...]
+          const data = eval(m[1]); // array literal, not trusted JSON; eval in sandboxed context
+          // data[1][1] is entries array in observed layouts
+          const entries = (data && data[1] && Array.isArray(data[1][1])) ? data[1][1] : [];
+          for (const e of entries) {
+            // e example: [1784914561, "Nom", null, 0, [[1144946249,null,1]], ...]
+            const label = (e && e[1]) || '';
+            const idGroup = (e && e[4]) || [];
+            if (Array.isArray(idGroup) && idGroup.length > 0 && Array.isArray(idGroup[0]) && idGroup[0].length > 0) {
+              const entryId = idGroup[0][0];
+              if (entryId != null) {
+                const name = `entry.${entryId}`;
+                fields.push({ name, labelText: String(label || '').trim() });
+              }
+            }
+          }
+        }
+      } catch {}
+    }
+
+    console.log(`🔎 Champs détectés: ${fields.length}`);
+    fields.forEach(f => console.log(` - ${f.name} ⇢ "${(f.labelText || '').slice(0,120)}"`));
+
     // Helper: normalize french text (remove accents, lowercase)
     const norm = (s) => (s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
 
@@ -400,13 +439,15 @@ export async function autoSubmitGoogleForm(formUrl) {
       }
     }
 
+    await notify(`🧭 Mapping: ${JSON.stringify(roleMap)}`);
+
     // 5) Read env values with fallbacks
     const envVal = (keys) => keys.map(k => process.env[k]).find(v => v != null && String(v).trim() !== '');
     const values = {
-      nom: envVal(['FORM_NOM', 'NOM']),
-      prenom: envVal(['FORM_PRENOM', 'PRENOM']),
-      mail: envVal(['FORM_MAIL', 'MAIL', 'EMAIL']),
-      numero: envVal(['FORM_NUMERO', 'NUMERO', 'TEL', 'TELEPHONE']),
+      nom: envVal(['FORM_NOM', 'NOM', 'nom']),
+      prenom: envVal(['FORM_PRENOM', 'PRENOM', 'prenom', 'prénom']),
+      mail: envVal(['FORM_MAIL', 'MAIL', 'EMAIL', 'mail', 'email']),
+      numero: envVal(['FORM_NUMERO', 'NUMERO', 'TEL', 'TELEPHONE', 'numero', 'numéro']),
     };
 
     // 6) Merge with FORM_PAYLOAD_JSON if provided
@@ -433,9 +474,19 @@ export async function autoSubmitGoogleForm(formUrl) {
       if (fields.length > 0) {
         for (const f of fields) payload[f.name] = 'N/A';
       } else {
-        return { ok: false, submitted: false, message: `Could not build payload: unmatched fields ${missing.join(', ') || 'all'}` };
+        const msg = `❌ Impossible de construire le payload: champs non appariés ${missing.join(', ') || 'tous'}`;
+        await notify(msg);
+        return { ok: false, submitted: false, message: msg };
       }
     }
+
+    const previewPairs = [];
+    const entryToLabel = Object.fromEntries(fields.map(f => [f.name, f.labelText]));
+    for (const [k, v] of Object.entries(payload)) {
+      const label = entryToLabel[k] || k;
+      previewPairs.push(`${label}: ${String(v)}`);
+    }
+    console.log(`📝 Payload prêt (${Object.keys(payload).length} champs)`);
 
     // 8) Submit
     const formData = new URLSearchParams();
@@ -460,9 +511,20 @@ export async function autoSubmitGoogleForm(formUrl) {
       message: ok ? 'Submitted' : `Submit failed: ${res.status}`,
       unmatched: missing,
       mapped: roleMap,
+      submittedPreview: previewPairs,
     };
+
+    if (ok) {
+      await notify(`✅ Formulaire soumis (${res.status}). Champs soumis:\n- ${previewPairs.join('\n- ')}`);
+    } else {
+      await notify(`⚠️ Échec soumission (${res.status}). Manquants: ${missing.join(', ')}`);
+    }
+
     return info;
   } catch (e) {
+    const discordUrl = process.env.DISCORD_WEBHOOK_URL || process.env.DEBUG_DISCORD_WEBHOOK_URL;
+    const ntfyUrl = process.env.NTFY_URL || process.env.DEBUG_NTFY_URL;
+    try { await sendNotification(`❌ Erreur auto-submit: ${e.message}`, discordUrl, ntfyUrl); } catch {}
     return { ok: false, submitted: false, message: `Error: ${e.message}` };
   }
 }

@@ -1,3 +1,9 @@
+## 2.1.0
+authors: lorishenry95800@gmail.com
+
+### Features
+- Add core feature auto gform submission function
+
 ## 2.0.1
 authors: lorishenry95800@gmail.com
 
